@@ -26,12 +26,10 @@ class Scene {
         this.started = false;
         // anime.js writes these values every frame; the renderer only reads them.
         this.values = { phase: 0, evolve: 0, drift: 0, breathe: 1, fade: 1, tone: 0, sheen: 0 };
-        this.reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
         this.resizeObserver = new ResizeObserver(() => this.onResize());
         this.resizeObserver.observe(canvas);
         window.addEventListener("resize", () => this.onResize());
-        this.reducedMotion.addEventListener("change", () => this.start());
 
         this.resize();
         this.paint();
@@ -48,8 +46,7 @@ class Scene {
 
     onResize() {
         this.resize();
-        if (this.reducedMotion.matches) this.paintStill();
-        else this.paint();
+        this.paint();
     }
 
     paint() {
@@ -66,10 +63,6 @@ class Scene {
     start() {
         if (this.started) return;
         this.started = true;
-        if (this.reducedMotion.matches) {
-            this.paintStill();
-            return;
-        }
 
         // Weather pace: one turn of the bands every two minutes, the low drifting on a
         // five-minute loop, and the pattern itself morphing over three minutes.
@@ -98,16 +91,6 @@ class Scene {
         this.time += dt;
         this.cyclone.update(dt, this.values.drift);
         this.paint();
-    }
-
-    // Reduced motion: settle the low, then hold a single frame.
-    paintStill() {
-        this.time = 3;
-        for (let i = 0; i < 240; i++) {
-            this.time += 1 / 60;
-            this.cyclone.update(1 / 60, (this.time / 60) % TAU);
-        }
-        this.chart.render(this.cyclone, this.time, 1 / 30, { phase: 0.9, fade: 1, breathe: 1, tone: 0.5, sheen: 0.5 });
     }
 }
 
