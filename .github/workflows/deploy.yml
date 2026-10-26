@@ -1,3 +1,4 @@
+# Build the dodeca site and deploy it to GitHub Pages.
 name: Deploy to GitHub Pages
 
 on:
@@ -21,40 +22,47 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - name: Set up Node
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
 
-      # The site JS lives in src/; dodeca does not rewrite relative ES module
-      # imports, so it is bundled into a single static/cyclone.js first.
+      # The site JS lives in src/. dodeca does not rewrite relative ES module
+      # imports, so bundle it into a single static/cyclone.js before building.
       - name: Bundle site JS
         run: |
           npm ci
           npm run build:js
 
-      # The dodeca installer script points at an object-storage bucket that is
-      # no longer serving `latest`, so fetch the release tarball directly.
+      # The installer script pulls its `latest` pointer from an object-storage
+      # bucket that no longer exists, so fetch the release tarball directly.
       - name: Install dodeca
         run: |
-          curl -fsSL "https://github.com/bearcove/dodeca/releases/download/${DODECA_VERSION}/dodeca-x86_64-unknown-linux-gnu.tar.xz" -o /tmp/dodeca.tar.xz
-          tar -xJf /tmp/dodeca.tar.xz -C /tmp
-          sudo install -m 0755 /tmp/ddc /usr/local/bin/ddc
+          mkdir -p "$RUNNER_TEMP/ddc"
+          curl -fsSL --retry 5 --retry-all-errors \
+            "https://github.com/bearcove/dodeca/releases/download/${DODECA_VERSION}/dodeca-x86_64-unknown-linux-gnu.tar.xz" \
+            -o "$RUNNER_TEMP/dodeca.tar.xz"
+          tar -xJf "$RUNNER_TEMP/dodeca.tar.xz" -C "$RUNNER_TEMP/ddc"
+          sudo install -m 0755 "$RUNNER_TEMP/ddc/ddc" /usr/local/bin/ddc
           ddc --version
 
       - name: Build site
         run: ddc build
 
-      # dodeca 0.17 hashes everything in static/, so the CNAME in static/ would
-      # be renamed. Copy the tracked root CNAME in after the build instead.
-      - name: Add CNAME
+      # dodeca 0.17 cache-busts everything under static/, so the CNAME has to be
+      # written into the output after the build.
+      - name: Write CNAME
         run: cp CNAME public/CNAME
 
-      - uses: actions/configure-pages@v5
+      - name: Setup Pages
+        uses: actions/configure-pages@v6
 
-      - uses: actions/upload-pages-artifact@v3
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v5
         with:
           path: public/
 
@@ -67,4 +75,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
