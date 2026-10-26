@@ -1,43 +1,25 @@
-// Glyph-tile wind chart: isobars, station barbs, an airflow field and orbiting tracers,
-// all etched as monospace tiles. Same visual language as the original koi-pond canvas.
+// Dot-matrix wind chart: a cyclonic circulation drawn as rounded dot cells, with
+// isobars, drifting air parcels and a glass finish over the whole frame.
 
-import { clamp, dirGlyph, dirIndex, dirStep, hash3, smoothstep, TAU } from "./field.js";
+import { clamp, dirGlyph, hash3, smoothstep, TAU } from "./field.js";
 
-const DARK = {
-    bg: [8, 14, 27],
-    // Wind-speed ramp for the tiles: deep water at calm, then blue, then icy gust light.
+// Deep Neptune blue: an azure ocean surface with pale methane streaks.
+const PALETTE = {
+    bg: [3, 4, 10],
+    // Wind-speed ramp for the dots: abyssal blue at calm, then azure, then polar light.
     flow: [
-        [20, 66, 136],
-        [30, 128, 232],
-        [86, 192, 255],
-        [198, 238, 255],
+        [14, 52, 124],
+        [38, 118, 218],
+        [150, 210, 255],
+        [255, 255, 255],
     ],
-    pale: [186, 226, 255],
-    etch: [150, 210, 255],
-    accent: [122, 214, 255],
-    isobar: [86, 142, 214],
-    station: [168, 216, 255],
-    label: [140, 194, 244],
-    // How far a tile is washed from the page colour toward its wind colour.
-    wash: [0.16, 0.55],
-};
-
-// Pale paper: dark ink glyphs on pale blue washes.
-const LIGHT = {
-    bg: [240, 244, 250],
-    flow: [
-        [172, 196, 226],
-        [92, 148, 212],
-        [28, 92, 176],
-        [6, 34, 84],
-    ],
-    pale: [14, 42, 88],
-    etch: [12, 46, 104],
-    accent: [10, 94, 178],
-    isobar: [70, 118, 186],
-    station: [36, 88, 154],
-    label: [38, 88, 154],
-    wash: [0.12, 0.5],
+    etch: [214, 238, 255],
+    accent: [236, 247, 255],
+    isobar: [140, 186, 240],
+    // The frame's tone drifts between these: azure surface and deep navy shadow.
+    toneA: [16, 44, 100],
+    toneB: [4, 10, 28],
+    label: [178, 210, 248],
 };
 
 const packRgb = (c) => (c[0] << 16) | (c[1] << 8) | c[2];
@@ -47,6 +29,7 @@ const mix = (a, b, k) => [
     (a[2] + (b[2] - a[2]) * k) | 0,
 ];
 
+/** Sample a colour ramp at t in [0, 1]. */
 function ramp(stops, t) {
     const x = clamp(t, 0, 1) * (stops.length - 1);
     const i = Math.min(stops.length - 2, Math.floor(x));
@@ -60,7 +43,6 @@ function angleDiff(a, b) {
     return d;
 }
 
-// Isobar levels: pressure rises outward from the low, closer together near the eyewall.
 const ISOBARS = [
     { radius: 0.42, pressure: 986 },
     { radius: 0.72, pressure: 990 },
@@ -76,7 +58,7 @@ export class WindChart {
         const ctx = canvas.getContext("2d");
         if (!ctx) throw new Error("2D canvas unavailable");
         this.ctx = ctx;
-        this.palette = DARK;
+        this.palette = PALETTE;
         this.dpr = 1;
         this.cw = 12;
         this.ch = 14;
@@ -87,10 +69,6 @@ export class WindChart {
         this.annotations = [];
         this.tracers = [];
         this.stormScratch = { x: 0, y: 0, r: 0, angle: 0 };
-    }
-
-    setTheme(isLight) {
-        this.palette = isLight ? LIGHT : DARK;
     }
 
     resize(width, height, dpr) {
@@ -109,7 +87,27 @@ export class WindChart {
         this.cellAlpha = new Float32Array(n);
         this.cellTile = new Uint32Array(n);
         this.cellTileAlpha = new Float32Array(n);
+        this.buildGrain();
         this.seedTracers();
+    }
+
+    /** A small tiled noise texture: the fine frosting of the glass surface. */
+    buildGrain() {
+        const size = 128;
+        const off = document.createElement("canvas");
+        off.width = size;
+        off.height = size;
+        const octx = off.getContext("2d");
+        const data = octx.createImageData(size, size);
+        for (let i = 0; i < data.data.length; i += 4) {
+            const v = Math.random() * 255;
+            data.data[i] = v;
+            data.data[i + 1] = v;
+            data.data[i + 2] = v;
+            data.data[i + 3] = 255;
+        }
+        octx.putImageData(data, 0, 0);
+        this.grain = this.ctx.createPattern(off, "repeat");
     }
 
     // ── cell helpers ────────────────────────────────────────────────────
@@ -157,7 +155,7 @@ export class WindChart {
      * tilted, slightly elliptical core with a tight eyewall: an organised storm, not a
      * clean circle of concentric rings.
      */
-    paintField(cyclone, time) {
+    paintField(cyclone, phaseOffset, evolve = 0) {
         const { cols, rows, cw, ch, palette } = this;
         const ref = cyclone.vmax * 1.15;
         const scratch = this.stormScratch;
@@ -178,29 +176,31 @@ export class WindChart {
                 const phase =
                     cyclone.arms * storm.angle +
                     cyclone.pitch * Math.log(Math.max(0.2, u)) -
-                    time * 0.24 +
-                    cyclone.turbulence * 3.4 * Math.sin(3 * storm.angle + cyclone.harmonic) +
-                    cyclone.turbulence * 1.7 * Math.sin(7 * storm.angle - cyclone.harmonic * 1.7);
-                const band = Math.pow(0.5 + 0.5 * Math.sin(phase), 1.7);
-                const asym = 0.55 + 0.45 * Math.cos(storm.angle - cyclone.asymAngle);
+                    phaseOffset +
+                    cyclone.turbulence * 3.4 * Math.sin(3 * storm.angle + cyclone.harmonic + evolve) +
+                    cyclone.turbulence * 1.7 * Math.sin(7 * storm.angle - cyclone.harmonic * 1.7 - evolve * 1.6);
+                const band = Math.pow(0.5 + 0.5 * Math.sin(phase), 1.5);
+                const asym = 0.42 + 0.58 * Math.cos(storm.angle - cyclone.asymAngle);
 
                 // A tight, near-continuous eyewall ring hugging the eye.
                 const wall = smoothstep(cyclone.rm * 0.42, cyclone.rm * 0.06, Math.abs(storm.r - cyclone.rm * 1.02));
                 // Fade the whole field past the outer bands, so the chart has a calm edge.
                 const reach = smoothstep(cyclone.rm * 3.0, cyclone.rm * 0.95, storm.r);
+                // Deep gaps between the bands keep the spiral structure legible.
                 const strength = clamp(
-                    t * reach * (0.16 + 0.84 * band) * (0.5 + 0.55 * asym) + t * wall * 0.75,
+                    t * reach * (0.05 + 0.95 * band) * (0.45 + 0.6 * asym) + t * wall * 0.85,
                     0,
                     1
                 );
-                if (strength < 0.06) continue;
-                if (hash3(c, r, 11) > 0.1 + 0.88 * strength) continue;
+                if (strength < 0.09) continue;
+                // Strong bands stay continuous; the faint outer ones thin out into scattered dots.
+                if (strength < 0.3 && hash3(c, r, 11) > 0.3 + 2.2 * strength) continue;
 
-                const tile = mix(palette.bg, ramp(palette.flow, Math.min(1, strength * 1.25)), 0.42 + 0.44 * strength);
+                const tile = mix(palette.bg, ramp(palette.flow, Math.min(1, strength * 1.2)), 0.34 + 0.42 * strength);
                 // Each rounded cell carries a dot: pale on the dark cells, dark on the lit ones.
                 const ink =
                     strength > 0.55 ? mix(tile, palette.bg, 0.55) : mix(tile, palette.etch, 0.5 + 0.3 * strength);
-                this.put(c, r, ".", ink, 0.35 + 0.35 * strength, tile, 0.1 + 0.3 * strength);
+                this.put(c, r, ".", ink, (0.12 + 0.46 * strength) * (0.7 + 0.3 * hash3(c, r, 7)), tile, 0.05 + 0.3 * strength);
             }
         }
     }
@@ -248,7 +248,7 @@ export class WindChart {
     // ── chart ───────────────────────────────────────────────────────────
 
     /** Isobars as faint chains of tangent glyphs, with the pressure printed in the gap. */
-    paintIsobars(cyclone, time) {
+    paintIsobars(cyclone, time, pulse = 0) {
         const { cols, rows, cw, ch, palette } = this;
         const swing = Math.sin(time * 0.05) * 0.05;
         const color = mix(palette.bg, palette.isobar, 0.8);
@@ -256,7 +256,7 @@ export class WindChart {
 
         ISOBARS.forEach((ring, index) => {
             const labelAngle = -2.4 + index * 0.62 + swing;
-            const R = cyclone.rm * ring.radius * (1 + Math.sin(time * 0.07 + index) * 0.01);
+            const R = cyclone.rm * ring.radius * (1 + Math.sin(time * 0.07 + index) * 0.01 + pulse * 0.015);
             if (R > Math.hypot(cols * cw, rows * ch)) return;
             seen.clear();
             const seed = index * 3.7;
@@ -305,20 +305,28 @@ export class WindChart {
 
     // ── frame ───────────────────────────────────────────────────────────
 
-    render(cyclone, time, dt) {
+    render(cyclone, time, dt, scene) {
         if (this.cols === 0) return;
+        // Values animated by anime.js: band rotation, reveal, breathing, isobar pulse.
+        const { phase = time * 0.24, fade = 1, breathe = 1, pulse = 0, evolve = 0 } = scene || {};
+        this.warp = (scene?.phase ?? 0) * 1.4;
+        this.tone = scene?.tone ?? 0.5;
+        this.sheen = scene?.sheen ?? 0.5;
+        this.fade = fade * breathe;
         this.cellGlyph.fill(0);
         this.cellTileAlpha.fill(0);
         this.annotations.length = 0;
 
-        this.paintField(cyclone, time);
-        this.paintIsobars(cyclone, time);
+        this.paintField(cyclone, phase, evolve);
+        this.paintIsobars(cyclone, time, pulse);
         this.paintTracers(cyclone, time, dt);
         this.blit();
+        this.paintGlass();
     }
 
     blit() {
         const { ctx, dpr, cw, ch, cols, cellGlyph, cellColor, cellAlpha, cellTile, cellTileAlpha } = this;
+        const fade = this.fade ?? 1;
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -326,7 +334,8 @@ export class WindChart {
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         // Cells are rounded dots, not tiles: the chart reads as a dot matrix with glyphs etched in.
-        const dot = Math.min(cw, ch) * 0.5 - 0.4;
+        const dot = Math.min(cw, ch) * 0.5 - 0.9;
+        const warp = this.warp ?? 0;
 
         for (let i = 0; i < cellGlyph.length; i++) {
             const code = cellGlyph[i];
@@ -334,34 +343,144 @@ export class WindChart {
             const x = (i % cols) * cw;
             const y = ((i / cols) | 0) * ch;
             if (cellTileAlpha[i] > 0) {
-                ctx.globalAlpha = cellTileAlpha[i];
+                ctx.globalAlpha = cellTileAlpha[i] * fade;
                 ctx.fillStyle = this.style(cellTile[i]);
-                // A hair of per-cell variation keeps the dot field from looking stamped.
-                const radius = dot * (0.88 + 0.12 * hash3(i, 3, 7));
+                // A hair of per-cell variation, plus a broad warp, keeps the dot field
+                // from looking stamped: the lattice drifts like light on water.
+                const jx = (hash3(i, 1, 2) - 0.5) * cw * 0.12;
+                const jy = (hash3(i, 4, 5) - 0.5) * ch * 0.12;
+                const wx = Math.sin(y * 0.013 + warp) * cw * 0.1;
+                const wy = Math.cos(x * 0.011 - warp * 1.3) * ch * 0.09;
+                const radius = dot * (0.9 + 0.1 * hash3(i, 3, 7));
                 ctx.beginPath();
-                ctx.arc(x + cw / 2, y + ch / 2, radius, 0, TAU);
+                ctx.arc(x + cw / 2 + jx + wx, y + ch / 2 + jy + wy, radius, 0, TAU);
                 ctx.fill();
             }
             if (code === 32) continue;
-            ctx.globalAlpha = cellAlpha[i];
+            ctx.globalAlpha = cellAlpha[i] * fade;
             ctx.fillStyle = this.style(cellColor[i]);
             // A period is drawn as a true dot at the cell centre; as text it sits on the baseline,
             // which reads as a smudge at the bottom of the rounded cell.
             if (code === 46) {
+                const jx = (hash3(i, 1, 2) - 0.5) * cw * 0.12;
+                const jy = (hash3(i, 4, 5) - 0.5) * ch * 0.12;
+                const wx = Math.sin(y * 0.013 + warp) * cw * 0.1;
+                const wy = Math.cos(x * 0.011 - warp * 1.3) * ch * 0.09;
                 ctx.beginPath();
-                ctx.arc(x + cw / 2, y + ch / 2, Math.min(cw, ch) * 0.13, 0, TAU);
+                ctx.arc(x + cw / 2 + jx + wx, y + ch / 2 + jy + wy, Math.min(cw, ch) * 0.12, 0, TAU);
                 ctx.fill();
                 continue;
             }
             ctx.fillText(String.fromCharCode(code), x + cw / 2, y + ch / 2 + 1);
         }
 
+        // Bloom: lit dots get a soft halo, the way highlights bead on glass.
+        ctx.globalCompositeOperation = "lighter";
+        ctx.fillStyle = "rgba(214,238,255,1)";
+        for (let i = 0; i < cellTileAlpha.length; i++) {
+            const t = cellTileAlpha[i];
+            if (t < 0.26) continue;
+            const x = (i % cols) * cw;
+            const y = ((i / cols) | 0) * ch;
+            ctx.globalAlpha = Math.min(0.1, t * 0.16) * fade;
+            ctx.beginPath();
+            ctx.arc(x + cw / 2, y + ch / 2, Math.min(cw, ch) * 0.85, 0, TAU);
+            ctx.fill();
+        }
+        ctx.globalCompositeOperation = "source-over";
+
         for (const a of this.annotations) {
-            ctx.globalAlpha = a.alpha;
+            ctx.globalAlpha = a.alpha * fade;
             ctx.fillStyle = this.style(packRgb(a.color));
             ctx.font = `${a.weight} ${Math.round(a.size)}px ${this.fontFamily}`;
             ctx.fillText(a.text, a.x, a.y);
         }
+        ctx.globalAlpha = 1;
+    }
+
+    // ── gloss ───────────────────────────────────────────────────────────
+
+    /**
+     * Glass finish: a slow tone wash, frosted grain, a broad sheen with a narrow
+     * specular streak, top light and a soft vignette. All low-alpha passes over the
+     * whole frame, so the chart reads as a polished pane rather than a flat diagram.
+     */
+    paintGlass() {
+        const { ctx, cols, rows, cw, ch, palette } = this;
+        const w = cols * cw;
+        const h = rows * ch;
+        if (w < 2 || h < 2) return;
+        const tone = clamp(this.tone ?? 0.5, 0, 1);
+        const sheen = clamp(this.sheen ?? 0.5, 0, 1);
+
+        // Tone: the whole frame slowly leans between blue and teal with the pattern.
+        const tint = mix(palette.toneA, palette.toneB, tone);
+        const wash = ctx.createRadialGradient(w * 0.5, h * 0.5, 0, w * 0.5, h * 0.5, Math.hypot(w, h) * 0.65);
+        wash.addColorStop(0, `rgba(${tint[0]},${tint[1]},${tint[2]},0.028)`);
+        wash.addColorStop(1, `rgba(${tint[0]},${tint[1]},${tint[2]},0.004)`);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = wash;
+        ctx.fillRect(0, 0, w, h);
+
+        // Zonal bands: the slow, horizontal banding of a gas-giant surface.
+        const bands = ctx.createLinearGradient(0, 0, 0, h);
+        const bandPhase = this.warp ?? 0;
+        for (let i = 0; i <= 7; i++) {
+            const glow = 0.5 + 0.5 * Math.sin(i * 1.9 + bandPhase * 0.35);
+            bands.addColorStop(i / 7, `rgba(120,180,255,${(0.002 + glow * 0.008).toFixed(4)})`);
+        }
+        ctx.fillStyle = bands;
+        ctx.fillRect(0, 0, w, h);
+
+        // Frost: fine grain, barely there, but it takes the digital edge off the dots.
+        if (this.grain) {
+            ctx.globalCompositeOperation = "screen";
+            ctx.globalAlpha = 0.02;
+            ctx.fillStyle = this.grain;
+            ctx.fillRect(0, 0, w, h);
+            ctx.globalCompositeOperation = "source-over";
+            ctx.globalAlpha = 1;
+        }
+
+        // Sheen: a wide band of light sliding across the glass.
+        const travel = -0.35 + sheen * 1.7;
+        const sheenFill = ctx.createLinearGradient(w * (travel - 0.35), -h * 0.1, w * (travel + 0.35), h * 1.1);
+        sheenFill.addColorStop(0, "rgba(150,205,255,0)");
+        sheenFill.addColorStop(0.5, "rgba(214,238,255,0.03)");
+        sheenFill.addColorStop(1, "rgba(150,205,255,0)");
+        ctx.globalCompositeOperation = "lighter";
+        ctx.fillStyle = sheenFill;
+        ctx.fillRect(0, 0, w, h);
+
+        // Specular streak: a narrow, brighter reflection riding inside the sheen.
+        const streak = ctx.createLinearGradient(w * (travel - 0.07), 0, w * (travel + 0.07), h);
+        streak.addColorStop(0, "rgba(210,238,255,0)");
+        streak.addColorStop(0.5, "rgba(240,250,255,0.032)");
+        streak.addColorStop(1, "rgba(210,238,255,0)");
+        ctx.fillStyle = streak;
+        ctx.fillRect(0, 0, w, h);
+        ctx.globalCompositeOperation = "source-over";
+
+        // Top light: the pane catches the room light along its upper edge.
+        const topLight = ctx.createLinearGradient(0, 0, 0, h * 0.42);
+        topLight.addColorStop(0, "rgba(170,215,255,0.035)");
+        topLight.addColorStop(1, "rgba(170,215,255,0)");
+        ctx.fillStyle = topLight;
+        ctx.fillRect(0, 0, w, h);
+
+        // Vignette: dark corners so the chart sits inside the frame like a photograph.
+        const vignette = ctx.createRadialGradient(
+            w * 0.5,
+            h * 0.48,
+            Math.min(w, h) * 0.28,
+            w * 0.5,
+            h * 0.5,
+            Math.hypot(w, h) * 0.62
+        );
+        vignette.addColorStop(0, "rgba(0,0,0,0)");
+        vignette.addColorStop(1, "rgba(0,0,0,0.3)");
+        ctx.fillStyle = vignette;
+        ctx.fillRect(0, 0, w, h);
         ctx.globalAlpha = 1;
     }
 

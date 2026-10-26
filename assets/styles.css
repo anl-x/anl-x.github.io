@@ -2,22 +2,14 @@
  * One full-screen glyph canvas, nothing else.
  * The page colour must equal the chart palette's `bg`, because every tile is washed
  * from that colour toward its wind colour so the glyph field blends into the page.
- *   dark  bg = rgb(8 14 27)    (#080e1b)
- *   light bg = rgb(240 244 250) (#f0f4fa)
+ *   bg = rgb(3 4 10)     (#03040a)
  */
 
 :root {
     color-scheme: dark;
-    background: #080e1b;
+    background: #03040a;
     /* The page is an ambient chart: no cursor changes, no touch handling. */
     cursor: default;
-}
-
-@media (prefers-color-scheme: light) {
-    :root {
-        color-scheme: light;
-        background: #f0f4fa;
-    }
 }
 
 * {

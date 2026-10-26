@@ -1,0 +1,70 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  DODECA_VERSION: v0.17.0
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The site JS lives in src/; dodeca does not rewrite relative ES module
+      # imports, so it is bundled into a single static/cyclone.js first.
+      - name: Bundle site JS
+        run: |
+          npm ci
+          npm run build:js
+
+      # The dodeca installer script points at an object-storage bucket that is
+      # no longer serving `latest`, so fetch the release tarball directly.
+      - name: Install dodeca
+        run: |
+          curl -fsSL "https://github.com/bearcove/dodeca/releases/download/${DODECA_VERSION}/dodeca-x86_64-unknown-linux-gnu.tar.xz" -o /tmp/dodeca.tar.xz
+          tar -xJf /tmp/dodeca.tar.xz -C /tmp
+          sudo install -m 0755 /tmp/ddc /usr/local/bin/ddc
+          ddc --version
+
+      - name: Build site
+        run: ddc build
+
+      # dodeca 0.17 hashes everything in static/, so the CNAME in static/ would
+      # be renamed. Copy the tracked root CNAME in after the build instead.
+      - name: Add CNAME
+        run: cp CNAME public/CNAME
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public/
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,6 @@
+content content
+output public
+
+stable_assets (
+    CNAME
+)

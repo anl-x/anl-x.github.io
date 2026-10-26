@@ -1,0 +1,12 @@
+{
+  "name": "anlx-site",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:js": "esbuild src/cyclone/main.js --bundle --format=esm --minify --target=es2022 --outfile=static/cyclone.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

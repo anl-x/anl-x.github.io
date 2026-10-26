@@ -1,0 +1,100 @@
+/*
+ * Deep black page, one full-screen background canvas, two links.
+ * The page colour must equal PALETTE.bg in src/cyclone/chart.js, because every dot is
+ * washed from that colour toward its wind colour so the field blends into the page.
+ *   bg = rgb(3 4 10)  (#03040a)
+ */
+
+:root {
+    color-scheme: dark;
+    background: #03040a;
+    cursor: default;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+    background: inherit;
+    -webkit-tap-highlight-color: transparent;
+}
+
+#chart {
+    position: fixed;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    /* Decorative layer: pointer events belong to the page, not the canvas. */
+    pointer-events: none;
+}
+
+/*
+ * Frosted glass bar across the bottom: square, translucent, blurred, with a thin
+ * lit top edge so it reads as a pane sitting on the animation.
+ */
+main {
+    position: fixed;
+    left: 50%;
+    bottom: max(4vh, 24px);
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: max-content;
+    max-width: calc(100vw - 32px);
+    height: 44px;
+    padding: 0 22px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    text-transform: lowercase;
+    border-radius: 0;
+    border: 1px solid rgb(255 255 255 / 0.08);
+    background: rgb(255 255 255 / 0.04);
+    backdrop-filter: blur(22px) saturate(140%);
+    -webkit-backdrop-filter: blur(22px) saturate(140%);
+    box-shadow:
+        inset 0 1px 0 rgb(255 255 255 / 0.07),
+        0 12px 36px rgb(0 0 0 / 0.45);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+    main {
+        background: rgb(10 12 20 / 0.72);
+    }
+}
+
+.links {
+    display: flex;
+    gap: 2.2em;
+}
+
+.links a {
+    color: rgb(255 255 255 / 0.58);
+    text-decoration: none;
+    padding: 0.4em 0.05em;
+    transition:
+        color 180ms ease,
+        opacity 180ms ease;
+}
+
+.links a:hover,
+.links a:focus-visible {
+    color: rgb(255 255 255 / 0.95);
+    outline: none;
+}
+
+/* dodeca injects its search chrome into every page; this one is background only. */
+#dodeca-search,
+.dodeca-search,
+dodeca-search,
+[data-dodeca-search] {
+    display: none !important;
+}

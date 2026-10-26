@@ -29,21 +29,6 @@ export function dirGlyph(dx, dy) {
     return DIR_GLYPHS[dirIndex(dx, dy)];
 }
 
-/** Unit steps (in grid cells) for an 8-way direction, as [dx, dy] with -1/0/1. */
-export function dirStep(index) {
-    const steps = [
-        [1, 0],
-        [1, 1],
-        [0, 1],
-        [-1, 1],
-        [-1, 0],
-        [-1, -1],
-        [0, -1],
-        [1, -1],
-    ];
-    return steps[index & 7];
-}
-
 export class Cyclone {
     constructor() {
         this.width = 0;
@@ -102,7 +87,8 @@ export class Cyclone {
         // The eyewall sits near a fifth of the short side, so the whole circulation reads on one screen.
         this.rm = clamp(Math.min(width, height) * 0.185 * this.rmFactor, 84, 230);
         this.eye = this.rm * 0.17;
-        this.vmax = clamp(Math.min(width, height) * 0.4 * this.vmaxFactor, 150, 420);
+        // Screen-scaled wind speed: about 20-30 s per eyewall revolution, so the motion reads as weather, not chasing.
+        this.vmax = clamp(Math.min(width, height) * 0.062 * this.vmaxFactor, 26, 96);
         this._cos = Math.cos(this.tilt);
         this._sin = Math.sin(this.tilt);
 
@@ -120,16 +106,18 @@ export class Cyclone {
         }
     }
 
-    /** Slow Lissajous wander of the low, as if steered by the surrounding flow. */
-    update(dt, time) {
+    /**
+     * Ease the low toward the slowly wandering target. `drift` is a 0..TAU phase
+     * animated by anime.js; the driftPhase keeps the path different on every load.
+     */
+    update(dt, drift) {
         const px = this.x;
         const py = this.y;
-        const p = time * 0.016 + this.driftPhase;
-        const spanX = Math.min(this.width * 0.09, this.rm * 0.8);
+        const spanX = Math.min(this.width * 0.1, this.rm * 1.1);
         const spanY = Math.min(this.height * 0.07, this.rm * 0.8);
-        const tx = this.homeX + Math.sin(p) * spanX;
-        const ty = this.homeY + Math.sin(p * 1.31 + 1.2) * spanY;
-        const k = 1 - Math.exp(-dt * 0.4);
+        const tx = this.homeX + Math.sin(drift + this.driftPhase) * spanX;
+        const ty = this.homeY + Math.sin(drift * 1.31 + this.driftPhase * 1.7) * spanY;
+        const k = 1 - Math.exp(-dt * 0.18);
         this.x += (tx - this.x) * k;
         this.y += (ty - this.y) * k;
         this.vx = dt > 0 ? (this.x - px) / dt : 0;
@@ -209,10 +197,5 @@ export class Cyclone {
         out.y = wy;
         out.speed = Math.hypot(wx, wy);
         return out;
-    }
-
-    /** Normalised wind speed 0..1, used for the colour ramp and glyph density. */
-    intensity(speed) {
-        return clamp(speed / (this.vmax * 1.15), 0, 1);
     }
 }

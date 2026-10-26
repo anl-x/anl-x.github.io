@@ -1,0 +1,22 @@
+node_modules/
+dist/
+.DS_Store
+
+# fframes build output and review artefacts
+video/target/
+video/frames/
+video/out/
+video/review/
+video/strip.png
+video/onion.png
+video/*.mp4
+video/*.wav
+
+
+# Local x264 163 shim for the prebuilt FFmpeg on this machine
+video/.libs/
+.cache
+
+# dodeca build output and local tooling
+public/
+.tools/

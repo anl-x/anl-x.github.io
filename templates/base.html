@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <meta name="color-scheme" content="dark" />
+        <meta name="description" content="anlx — a blog." />
+        <title>{% block title %}{{ section.title }}{% endblock %}</title>
+        <link rel="stylesheet" href="{{ get_url(path='main.css') }}" />
+    </head>
+    <body>
+        <canvas id="chart" aria-hidden="true"></canvas>
+        <main>
+            {% block content %}{% endblock %}
+        </main>
+        <script type="module" src="{{ get_url(path='cyclone.js') }}"></script>
+    </body>
+</html>
