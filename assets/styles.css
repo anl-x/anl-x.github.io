@@ -1,0 +1,45 @@
+/*
+ * One full-screen glyph canvas, nothing else.
+ * The page colour must equal the chart palette's `bg`, because every tile is washed
+ * from that colour toward its wind colour so the glyph field blends into the page.
+ *   dark  bg = rgb(8 14 27)    (#080e1b)
+ *   light bg = rgb(240 244 250) (#f0f4fa)
+ */
+
+:root {
+    color-scheme: dark;
+    background: #080e1b;
+    /* The page is an ambient chart: no cursor changes, no touch handling. */
+    cursor: default;
+}
+
+@media (prefers-color-scheme: light) {
+    :root {
+        color-scheme: light;
+        background: #f0f4fa;
+    }
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+    background: inherit;
+    -webkit-tap-highlight-color: transparent;
+}
+
+#chart {
+    position: fixed;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    /* Decorative layer: pointer events belong to the page, not the canvas. */
+    pointer-events: none;
+}
